@@ -22,18 +22,25 @@ public class DatabricksConnection {
                 throw new IllegalArgumentException("HTTP_PATH must start with '/'");
             }
             
-            // Method 1: M2M (Machine-to-Machine) OAuth flow - Recommended for SPN
+            // Method 1: Service Principal with Client Credentials (No browser)
             Properties props = new Properties();
             props.setProperty("AuthMech", "11"); // OAuth 2.0
-            props.setProperty("Auth_Flow", "2"); // Changed to 2 for M2M flow instead of 1
+            props.setProperty("Auth_Flow", "1"); // Client credentials flow (not interactive)
             props.setProperty("OAuth2ClientId", CLIENT_ID);
             props.setProperty("OAuth2Secret", CLIENT_SECRET);
             props.setProperty("OAuth2TenantId", TENANT_ID);
             props.setProperty("HTTPPath", HTTP_PATH);
             props.setProperty("SSL", "1");
-            // Add Azure-specific OAuth settings
+            props.setProperty("EnableTokenCache", "0"); // Disable token caching
+            
+            // Explicitly disable interactive flows
+            props.setProperty("OAuth2RedirectUri", ""); // Empty to prevent browser redirect
+            props.setProperty("OAuth2ResponseType", "code"); // Use authorization code flow
+            
+            // Azure-specific settings for non-interactive auth
             props.setProperty("OAuth2TokenEndpoint", String.format("https://login.microsoftonline.com/%s/oauth2/v2.0/token", TENANT_ID));
-            props.setProperty("OAuth2Scope", "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default"); // Databricks scope
+            props.setProperty("OAuth2Scope", "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default");
+            props.setProperty("OAuth2GrantType", "client_credentials"); // Explicit grant type
             
             String baseUrl = String.format("jdbc:databricks://%s:443", DATABRICKS_HOST);
             
@@ -45,31 +52,43 @@ public class DatabricksConnection {
             connection = DriverManager.getConnection(baseUrl, props);
             System.out.println("Connected to Databricks successfully!");
             
-            // Alternative Method 2: Personal Access Token approach (uncomment if OAuth fails)
+            // Alternative Method 2: Direct Azure AD authentication (non-interactive)
             /*
-            // If you have a PAT instead of SPN, use this:
+            Properties directProps = new Properties();
+            directProps.setProperty("AuthMech", "11");
+            directProps.setProperty("Auth_Flow", "0"); // Direct authentication, no browser
+            directProps.setProperty("OAuth2ClientId", CLIENT_ID);
+            directProps.setProperty("OAuth2Secret", CLIENT_SECRET);
+            directProps.setProperty("OAuth2TenantId", TENANT_ID);
+            directProps.setProperty("HTTPPath", HTTP_PATH);
+            directProps.setProperty("SSL", "1");
+            directProps.setProperty("EnableTokenCache", "0");
+            directProps.setProperty("OAuth2GrantType", "client_credentials");
+            
+            connection = DriverManager.getConnection(baseUrl, directProps);
+            */
+            
+            // Alternative Method 3: Using username/password style for SPN
+            /*
+            Properties spnProps = new Properties();
+            spnProps.setProperty("AuthMech", "3"); // Use basic auth mechanism
+            spnProps.setProperty("UID", CLIENT_ID); // Service Principal ID as username
+            spnProps.setProperty("PWD", CLIENT_SECRET); // Service Principal secret as password
+            spnProps.setProperty("HTTPPath", HTTP_PATH);
+            spnProps.setProperty("SSL", "1");
+            
+            connection = DriverManager.getConnection(baseUrl, spnProps);
+            */
+            
+            // Alternative Method 4: Personal Access Token (most reliable for testing)
+            /*
             Properties patProps = new Properties();
             patProps.setProperty("AuthMech", "3"); // Personal Access Token
-            patProps.setProperty("PWD", "your-personal-access-token-here");
+            patProps.setProperty("PWD", "your-databricks-personal-access-token");
             patProps.setProperty("HTTPPath", HTTP_PATH);
             patProps.setProperty("SSL", "1");
             
             connection = DriverManager.getConnection(baseUrl, patProps);
-            */
-            
-            // Alternative Method 3: Azure AD integrated (uncomment for testing)
-            /*
-            Properties aadProps = new Properties();
-            aadProps.setProperty("AuthMech", "11");
-            aadProps.setProperty("Auth_Flow", "1"); // Client credentials
-            aadProps.setProperty("OAuth2ClientId", CLIENT_ID);
-            aadProps.setProperty("OAuth2Secret", CLIENT_SECRET);
-            // Explicit Azure AD authority
-            aadProps.setProperty("OAuth2AuthorityUrl", String.format("https://login.microsoftonline.com/%s", TENANT_ID));
-            aadProps.setProperty("HTTPPath", HTTP_PATH);
-            aadProps.setProperty("SSL", "1");
-            
-            connection = DriverManager.getConnection(baseUrl, aadProps);
             */
             System.out.println("Connected to Databricks successfully!");
             
