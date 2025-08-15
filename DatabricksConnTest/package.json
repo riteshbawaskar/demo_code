@@ -1,0 +1,19 @@
+{
+  "name": "databricks-spn-verifier",
+  "version": "1.0.0",
+  "description": "Verify Service Principal configuration in Databricks",
+  "main": "verify-databricks-spn.js",
+  "scripts": {
+    "verify": "node verify-databricks-spn.js",
+    "quick-check": "node quick-check.js",
+    "test-auth": "node test-authentication.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "chalk": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  }
+}
