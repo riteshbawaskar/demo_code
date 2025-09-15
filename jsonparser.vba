@@ -1,32 +1,31 @@
-' JSON Parser for Word VBA
-' Add this to a module in Word VBA
-
+' Simple JSON Parser for Word VBA - Fixed VBA Syntax
 Option Explicit
 
-' Main JSON Parser Class
+' Main JSON Parser Function
 Public Function ParseJSON(jsonString As String) As Object
-    ' Remove extra whitespace and line breaks
+    ' Clean the JSON string
     jsonString = Trim(jsonString)
     jsonString = Replace(jsonString, vbCr, "")
     jsonString = Replace(jsonString, vbLf, "")
+    jsonString = Replace(jsonString, vbTab, " ")
     
-    ' Try using ScriptControl first (works on 32-bit Office)
+    ' Try ScriptControl first (works on 32-bit Office)
     On Error Resume Next
     Dim sc As Object
     Set sc = CreateObject("ScriptControl")
     
-    If Not sc Is Nothing Then
+    If Not sc Is Nothing And Err.Number = 0 Then
         sc.Language = "JScript"
         Set ParseJSON = sc.Eval("(" & jsonString & ")")
-        Exit Function
+        If Err.Number = 0 Then Exit Function
     End If
     On Error GoTo 0
     
-    ' Fallback to custom parser for 64-bit or if ScriptControl fails
+    ' Fallback to custom parser
     Set ParseJSON = ParseJSONCustom(jsonString)
 End Function
 
-' Custom JSON Parser (works on both 32-bit and 64-bit)
+' Custom JSON Parser
 Private Function ParseJSONCustom(jsonString As String) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
@@ -37,7 +36,7 @@ Private Function ParseJSONCustom(jsonString As String) As Object
         ' Parse object
         Set result = ParseObject(Mid(jsonString, 2, Len(jsonString) - 2))
     ElseIf Left(jsonString, 1) = "[" And Right(jsonString, 1) = "]" Then
-        ' Parse array - convert to dictionary with numeric keys
+        ' Parse array
         Set result = ParseArray(Mid(jsonString, 2, Len(jsonString) - 2))
     End If
     
@@ -48,22 +47,57 @@ Private Function ParseObject(content As String) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     
+    If Len(Trim(content)) = 0 Then
+        Set ParseObject = result
+        Exit Function
+    End If
+    
+    Dim pairs As Collection
+    Set pairs = SplitObjectPairs(content)
+    
     Dim i As Long
-    Dim key As String
-    Dim value As String
+    For i = 1 To pairs.Count
+        ProcessKeyValuePair pairs(i), result
+    Next i
+    
+    Set ParseObject = result
+End Function
+
+Private Function ParseArray(content As String) As Object
+    Dim result As Object
+    Set result = CreateObject("Scripting.Dictionary")
+    
+    If Len(Trim(content)) = 0 Then
+        Set ParseArray = result
+        Exit Function
+    End If
+    
+    Dim items As Collection
+    Set items = SplitArrayItems(content)
+    
+    Dim i As Long
+    For i = 1 To items.Count
+        result.Add CStr(i - 1), ParseValue(items(i))
+    Next i
+    
+    Set ParseArray = result
+End Function
+
+Private Function SplitObjectPairs(content As String) As Collection
+    Dim result As New Collection
+    Dim i As Long
+    Dim currentPair As String
     Dim inString As Boolean
     Dim braceCount As Long
     Dim bracketCount As Long
-    Dim currentPair As String
     Dim char As String
     
-    i = 1
     inString = False
     braceCount = 0
     bracketCount = 0
     currentPair = ""
     
-    Do While i <= Len(content)
+    For i = 1 To Len(content)
         char = Mid(content, i, 1)
         
         If char = """" And (i = 1 Or Mid(content, i - 1, 1) <> "\") Then
@@ -75,41 +109,70 @@ Private Function ParseObject(content As String) As Object
             If char = "}" Then braceCount = braceCount - 1
             If char = "[" Then bracketCount = bracketCount + 1
             If char = "]" Then bracketCount = bracketCount - 1
-            
-            If char = "," And braceCount = 0 And bracketCount = 0 Then
-                ' Process current pair
-                ProcessKeyValuePair currentPair, result
-                currentPair = ""
-                i = i + 1
-                Continue Do
-            End If
         End If
         
-        currentPair = currentPair & char
-        i = i + 1
-    Loop
-    
-    ' Process last pair
-    If Len(currentPair) > 0 Then
-        ProcessKeyValuePair currentPair, result
-    End If
-    
-    Set ParseObject = result
-End Function
-
-Private Function ParseArray(content As String) As Object
-    Dim result As Object
-    Set result = CreateObject("Scripting.Dictionary")
-    
-    Dim items As Collection
-    Set items = SplitJSONArray(content)
-    
-    Dim i As Long
-    For i = 1 To items.Count
-        result.Add CStr(i - 1), ParseValue(items(i))
+        If Not inString And char = "," And braceCount = 0 And bracketCount = 0 Then
+            If Len(Trim(currentPair)) > 0 Then
+                result.Add Trim(currentPair)
+            End If
+            currentPair = ""
+        Else
+            currentPair = currentPair & char
+        End If
     Next i
     
-    Set ParseArray = result
+    ' Add the last pair
+    If Len(Trim(currentPair)) > 0 Then
+        result.Add Trim(currentPair)
+    End If
+    
+    Set SplitObjectPairs = result
+End Function
+
+Private Function SplitArrayItems(content As String) As Collection
+    Dim result As New Collection
+    Dim i As Long
+    Dim currentItem As String
+    Dim inString As Boolean
+    Dim braceCount As Long
+    Dim bracketCount As Long
+    Dim char As String
+    
+    inString = False
+    braceCount = 0
+    bracketCount = 0
+    currentItem = ""
+    
+    For i = 1 To Len(content)
+        char = Mid(content, i, 1)
+        
+        If char = """" And (i = 1 Or Mid(content, i - 1, 1) <> "\") Then
+            inString = Not inString
+        End If
+        
+        If Not inString Then
+            If char = "{" Then braceCount = braceCount + 1
+            If char = "}" Then braceCount = braceCount - 1
+            If char = "[" Then bracketCount = bracketCount + 1
+            If char = "]" Then bracketCount = bracketCount - 1
+        End If
+        
+        If Not inString And char = "," And braceCount = 0 And bracketCount = 0 Then
+            If Len(Trim(currentItem)) > 0 Then
+                result.Add Trim(currentItem)
+            End If
+            currentItem = ""
+        Else
+            currentItem = currentItem & char
+        End If
+    Next i
+    
+    ' Add the last item
+    If Len(Trim(currentItem)) > 0 Then
+        result.Add Trim(currentItem)
+    End If
+    
+    Set SplitArrayItems = result
 End Function
 
 Private Sub ProcessKeyValuePair(pair As String, dict As Object)
@@ -121,6 +184,8 @@ Private Sub ProcessKeyValuePair(pair As String, dict As Object)
     
     ' Find the colon that separates key and value
     inString = False
+    colonPos = 0
+    
     For i = 1 To Len(pair)
         If Mid(pair, i, 1) = """" And (i = 1 Or Mid(pair, i - 1, 1) <> "\") Then
             inString = Not inString
@@ -147,16 +212,27 @@ End Sub
 Private Function ParseValue(value As String) As Variant
     value = Trim(value)
     
+    If Len(value) = 0 Then
+        ParseValue = Null
+        Exit Function
+    End If
+    
     If Left(value, 1) = """" And Right(value, 1) = """" Then
         ' String value
         ParseValue = Mid(value, 2, Len(value) - 2)
         ParseValue = Replace(ParseValue, "\""", """")
         ParseValue = Replace(ParseValue, "\\", "\")
-    ElseIf value = "true" Then
+        ParseValue = Replace(ParseValue, "\/", "/")
+        ParseValue = Replace(ParseValue, "\b", Chr(8))
+        ParseValue = Replace(ParseValue, "\f", Chr(12))
+        ParseValue = Replace(ParseValue, "\n", vbLf)
+        ParseValue = Replace(ParseValue, "\r", vbCr)
+        ParseValue = Replace(ParseValue, "\t", vbTab)
+    ElseIf LCase(value) = "true" Then
         ParseValue = True
-    ElseIf value = "false" Then
+    ElseIf LCase(value) = "false" Then
         ParseValue = False
-    ElseIf value = "null" Then
+    ElseIf LCase(value) = "null" Then
         ParseValue = Null
     ElseIf Left(value, 1) = "{" Then
         ' Nested object
@@ -164,86 +240,51 @@ Private Function ParseValue(value As String) As Variant
     ElseIf Left(value, 1) = "[" Then
         ' Nested array
         Set ParseValue = ParseJSONCustom(value)
-    ElseIf IsNumeric(value) Then
+    ElseIf IsNumeric(value) Or (Left(value, 1) = "-" And IsNumeric(Mid(value, 2))) Then
         ' Numeric value
-        If InStr(value, ".") > 0 Then
+        If InStr(value, ".") > 0 Or InStr(LCase(value), "e") > 0 Then
             ParseValue = CDbl(value)
         Else
-            ParseValue = CLng(value)
+            If Len(value) < 10 Then
+                ParseValue = CLng(value)
+            Else
+                ParseValue = CDbl(value)
+            End If
         End If
     Else
-        ' Default to string
+        ' Default to string if can't parse
         ParseValue = value
     End If
 End Function
 
-Private Function SplitJSONArray(content As String) As Collection
-    Dim result As New Collection
-    Dim i As Long
-    Dim currentItem As String
-    Dim inString As Boolean
-    Dim braceCount As Long
-    Dim bracketCount As Long
-    Dim char As String
-    
-    i = 1
-    inString = False
-    braceCount = 0
-    bracketCount = 0
-    currentItem = ""
-    
-    Do While i <= Len(content)
-        char = Mid(content, i, 1)
-        
-        If char = """" And (i = 1 Or Mid(content, i - 1, 1) <> "\") Then
-            inString = Not inString
-        End If
-        
-        If Not inString Then
-            If char = "{" Then braceCount = braceCount + 1
-            If char = "}" Then braceCount = braceCount - 1
-            If char = "[" Then bracketCount = bracketCount + 1
-            If char = "]" Then bracketCount = bracketCount - 1
-            
-            If char = "," And braceCount = 0 And bracketCount = 0 Then
-                If Len(Trim(currentItem)) > 0 Then
-                    result.Add Trim(currentItem)
-                End If
-                currentItem = ""
-                i = i + 1
-                Continue Do
-            End If
-        End If
-        
-        currentItem = currentItem & char
-        i = i + 1
-    Loop
-    
-    ' Add last item
-    If Len(Trim(currentItem)) > 0 Then
-        result.Add Trim(currentItem)
+' Helper function to get nested values
+Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
+    If jsonObj Is Nothing Then
+        GetJSONValue = Null
+        Exit Function
     End If
     
-    Set SplitJSONArray = result
-End Function
-
-' Helper function to get value from parsed JSON
-Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
     Dim keys As Variant
-    Dim currentObj As Object
-    Dim i As Long
-    
     keys = Split(keyPath, ".")
+    
+    Dim currentObj As Object
     Set currentObj = jsonObj
     
+    Dim i As Long
     For i = 0 To UBound(keys)
         If currentObj.Exists(keys(i)) Then
-            If IsObject(currentObj(keys(i))) Then
-                Set currentObj = currentObj(keys(i))
-            Else
-                If i = UBound(keys) Then
+            If i = UBound(keys) Then
+                ' Last key - return the value
+                If IsObject(currentObj(keys(i))) Then
+                    Set GetJSONValue = currentObj(keys(i))
+                Else
                     GetJSONValue = currentObj(keys(i))
-                    Exit Function
+                End If
+                Exit Function
+            Else
+                ' Intermediate key - move deeper
+                If IsObject(currentObj(keys(i))) Then
+                    Set currentObj = currentObj(keys(i))
                 Else
                     GetJSONValue = Null
                     Exit Function
@@ -254,117 +295,49 @@ Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
             Exit Function
         End If
     Next i
-    
-    Set GetJSONValue = currentObj
 End Function
 
-' Example usage macro
-Sub ExampleJSONUsage()
+' Example usage
+Sub TestJSONParser()
     Dim jsonString As String
+    jsonString = "{""name"": ""John Doe"", ""age"": 30, ""city"": ""New York"", " & _
+                 """hobbies"": [""reading"", ""swimming""], " & _
+                 """address"": {""street"": ""123 Main St"", ""zip"": ""10001""}}"
+    
     Dim jsonObj As Object
-    
-    ' Sample JSON string
-    jsonString = "{""name"": ""John Doe"", ""age"": 30, ""city"": ""New York"", ""hobbies"": [""reading"", ""swimming""], ""address"": {""street"": ""123 Main St"", ""zip"": ""10001""}}"
-    
-    ' Parse JSON
     Set jsonObj = ParseJSON(jsonString)
     
-    ' Access values
+    ' Test basic access
     Debug.Print "Name: " & jsonObj("name")
     Debug.Print "Age: " & jsonObj("age")
     Debug.Print "City: " & jsonObj("city")
-    Debug.Print "First hobby: " & jsonObj("hobbies")("0")
-    Debug.Print "Street: " & jsonObj("address")("street")
     
-    ' Using helper function
+    ' Test array access
+    Debug.Print "First hobby: " & jsonObj("hobbies")("0")
+    Debug.Print "Second hobby: " & jsonObj("hobbies")("1")
+    
+    ' Test nested object access
+    Debug.Print "Street: " & jsonObj("address")("street")
+    Debug.Print "Zip: " & jsonObj("address")("zip")
+    
+    ' Test helper function
     Debug.Print "Zip using helper: " & GetJSONValue(jsonObj, "address.zip")
     
-    ' Insert into document
-    Dim doc As Document
-    Set doc = ActiveDocument
-    
-    doc.Content.InsertAfter "Name: " & jsonObj("name") & vbCrLf
-    doc.Content.InsertAfter "Age: " & jsonObj("age") & vbCrLf
-    doc.Content.InsertAfter "City: " & jsonObj("city") & vbCrLf
+    MsgBox "JSON parsing completed! Check Debug window for results."
 End Sub
 
-' Function to read JSON from file
-Sub ReadJSONFromFile()
-    Dim fileName As String
-    Dim jsonString As String
+' Test with complex nested JSON
+Sub TestComplexJSON()
+    Dim complexJSON As String
+    complexJSON = "{""users"":[{""id"":1,""name"":""John"",""address"":{""city"":""NYC"",""coords"":{""lat"":40.7,""lng"":-74.0}}}]}"
+    
     Dim jsonObj As Object
-    Dim fileNum As Integer
+    Set jsonObj = ParseJSON(complexJSON)
     
-    ' Open file dialog
-    fileName = Application.FileDialog(msoFileDialogFilePicker).Show
-    If fileName <> 0 Then
-        fileName = Application.FileDialog(msoFileDialogFilePicker).SelectedItems(1)
-        
-        ' Read file content
-        fileNum = FreeFile
-        Open fileName For Input As fileNum
-        jsonString = Input$(LOF(fileNum), fileNum)
-        Close fileNum
-        
-        ' Parse and use JSON
-        Set jsonObj = ParseJSON(jsonString)
-        
-        ' Process the JSON object as needed
-        MsgBox "JSON file loaded successfully!"
-    End If
+    ' Access deeply nested values
+    Debug.Print "User name: " & jsonObj("users")("0")("name")
+    Debug.Print "User city: " & jsonObj("users")("0")("address")("city")
+    Debug.Print "User latitude: " & jsonObj("users")("0")("address")("coords")("lat")
+    
+    MsgBox "Complex JSON parsing completed!"
 End Sub
-
-' Function to create JSON from Word table
-Sub CreateJSONFromTable()
-    Dim tbl As Table
-    Dim jsonString As String
-    Dim i As Long, j As Long
-    Dim headers() As String
-    Dim rowData As String
-    
-    If ActiveDocument.Tables.Count = 0 Then
-        MsgBox "No tables found in document"
-        Exit Sub
-    End If
-    
-    Set tbl = ActiveDocument.Tables(1)
-    
-    ' Get headers from first row
-    ReDim headers(1 To tbl.Columns.Count)
-    For j = 1 To tbl.Columns.Count
-        headers(j) = Trim(tbl.Cell(1, j).Range.Text)
-        headers(j) = Replace(headers(j), Chr(13) & Chr(7), "") ' Remove table cell markers
-    Next j
-    
-    ' Build JSON array
-    jsonString = "["
-    
-    For i = 2 To tbl.Rows.Count ' Start from row 2 (skip headers)
-        If i > 2 Then jsonString = jsonString & ","
-        jsonString = jsonString & "{"
-        
-        For j = 1 To tbl.Columns.Count
-            If j > 1 Then jsonString = jsonString & ","
-            Dim cellValue As String
-            cellValue = Trim(tbl.Cell(i, j).Range.Text)
-            cellValue = Replace(cellValue, Chr(13) & Chr(7), "") ' Remove table cell markers
-            cellValue = Replace(cellValue, """", "\""") ' Escape quotes
-            
-            jsonString = jsonString & """" & headers(j) & """:""" & cellValue & """"
-        Next j
-        
-        jsonString = jsonString & "}"
-    Next i
-    
-    jsonString = jsonString & "]"
-    
-    ' Insert JSON at end of document
-    ActiveDocument.Content.InsertAfter vbCrLf & vbCrLf & "Generated JSON:" & vbCrLf & jsonString
-End Sub
-
-'Dim jsonObj As Object
-'Set jsonObj = ParseJSON("{""name"": ""John"", ""age"": 30}")
-
-' Access values
-'Debug.Print jsonObj("name")  ' Outputs: John
-'Debug.Print jsonObj("age")   ' Outputs: 30
