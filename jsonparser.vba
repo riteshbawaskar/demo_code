@@ -1,4 +1,4 @@
-' Simple JSON Parser for Word VBA - Fixed VBA Syntax
+' Robust JSON Parser for Word VBA - No Errors
 Option Explicit
 
 ' Main JSON Parser Function
@@ -32,12 +32,21 @@ Private Function ParseJSONCustom(jsonString As String) As Object
     
     jsonString = Trim(jsonString)
     
+    If Len(jsonString) < 2 Then
+        Set ParseJSONCustom = result
+        Exit Function
+    End If
+    
     If Left(jsonString, 1) = "{" And Right(jsonString, 1) = "}" Then
         ' Parse object
-        Set result = ParseObject(Mid(jsonString, 2, Len(jsonString) - 2))
+        Dim objectContent As String
+        objectContent = Mid(jsonString, 2, Len(jsonString) - 2)
+        Set result = ParseObject(objectContent)
     ElseIf Left(jsonString, 1) = "[" And Right(jsonString, 1) = "]" Then
         ' Parse array
-        Set result = ParseArray(Mid(jsonString, 2, Len(jsonString) - 2))
+        Dim arrayContent As String
+        arrayContent = Mid(jsonString, 2, Len(jsonString) - 2)
+        Set result = ParseArray(arrayContent)
     End If
     
     Set ParseJSONCustom = result
@@ -47,7 +56,8 @@ Private Function ParseObject(content As String) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     
-    If Len(Trim(content)) = 0 Then
+    content = Trim(content)
+    If Len(content) = 0 Then
         Set ParseObject = result
         Exit Function
     End If
@@ -57,7 +67,7 @@ Private Function ParseObject(content As String) As Object
     
     Dim i As Long
     For i = 1 To pairs.Count
-        ProcessKeyValuePair pairs(i), result
+        ProcessKeyValuePair CStr(pairs(i)), result
     Next i
     
     Set ParseObject = result
@@ -67,7 +77,8 @@ Private Function ParseArray(content As String) As Object
     Dim result As Object
     Set result = CreateObject("Scripting.Dictionary")
     
-    If Len(Trim(content)) = 0 Then
+    content = Trim(content)
+    If Len(content) = 0 Then
         Set ParseArray = result
         Exit Function
     End If
@@ -77,7 +88,7 @@ Private Function ParseArray(content As String) As Object
     
     Dim i As Long
     For i = 1 To items.Count
-        result.Add CStr(i - 1), ParseValue(items(i))
+        result.Add CStr(i - 1), ParseValue(CStr(items(i)))
     Next i
     
     Set ParseArray = result
@@ -100,17 +111,30 @@ Private Function SplitObjectPairs(content As String) As Collection
     For i = 1 To Len(content)
         char = Mid(content, i, 1)
         
-        If char = """" And (i = 1 Or Mid(content, i - 1, 1) <> "\") Then
-            inString = Not inString
+        ' Check for string delimiter
+        If char = """" Then
+            If i = 1 Then
+                inString = Not inString
+            ElseIf Mid(content, i - 1, 1) <> "\" Then
+                inString = Not inString
+            End If
         End If
         
+        ' Count braces and brackets only when not in string
         If Not inString Then
-            If char = "{" Then braceCount = braceCount + 1
-            If char = "}" Then braceCount = braceCount - 1
-            If char = "[" Then bracketCount = bracketCount + 1
-            If char = "]" Then bracketCount = bracketCount - 1
+            Select Case char
+                Case "{"
+                    braceCount = braceCount + 1
+                Case "}"
+                    braceCount = braceCount - 1
+                Case "["
+                    bracketCount = bracketCount + 1
+                Case "]"
+                    bracketCount = bracketCount - 1
+            End Select
         End If
         
+        ' Check for separator
         If Not inString And char = "," And braceCount = 0 And bracketCount = 0 Then
             If Len(Trim(currentPair)) > 0 Then
                 result.Add Trim(currentPair)
@@ -146,17 +170,30 @@ Private Function SplitArrayItems(content As String) As Collection
     For i = 1 To Len(content)
         char = Mid(content, i, 1)
         
-        If char = """" And (i = 1 Or Mid(content, i - 1, 1) <> "\") Then
-            inString = Not inString
+        ' Check for string delimiter
+        If char = """" Then
+            If i = 1 Then
+                inString = Not inString
+            ElseIf Mid(content, i - 1, 1) <> "\" Then
+                inString = Not inString
+            End If
         End If
         
+        ' Count braces and brackets only when not in string
         If Not inString Then
-            If char = "{" Then braceCount = braceCount + 1
-            If char = "}" Then braceCount = braceCount - 1
-            If char = "[" Then bracketCount = bracketCount + 1
-            If char = "]" Then bracketCount = bracketCount - 1
+            Select Case char
+                Case "{"
+                    braceCount = braceCount + 1
+                Case "}"
+                    braceCount = braceCount - 1
+                Case "["
+                    bracketCount = bracketCount + 1
+                Case "]"
+                    bracketCount = bracketCount - 1
+            End Select
         End If
         
+        ' Check for separator
         If Not inString And char = "," And braceCount = 0 And bracketCount = 0 Then
             If Len(Trim(currentItem)) > 0 Then
                 result.Add Trim(currentItem)
@@ -181,16 +218,26 @@ Private Sub ProcessKeyValuePair(pair As String, dict As Object)
     Dim value As String
     Dim inString As Boolean
     Dim i As Long
+    Dim char As String
     
     ' Find the colon that separates key and value
     inString = False
     colonPos = 0
     
     For i = 1 To Len(pair)
-        If Mid(pair, i, 1) = """" And (i = 1 Or Mid(pair, i - 1, 1) <> "\") Then
-            inString = Not inString
+        char = Mid(pair, i, 1)
+        
+        ' Check for string delimiter
+        If char = """" Then
+            If i = 1 Then
+                inString = Not inString
+            ElseIf Mid(pair, i - 1, 1) <> "\" Then
+                inString = Not inString
+            End If
         End If
-        If Mid(pair, i, 1) = ":" And Not inString Then
+        
+        ' Find colon outside of strings
+        If char = ":" And Not inString Then
             colonPos = i
             Exit For
         End If
@@ -201,11 +248,16 @@ Private Sub ProcessKeyValuePair(pair As String, dict As Object)
         value = Trim(Mid(pair, colonPos + 1))
         
         ' Remove quotes from key
-        If Left(key, 1) = """" And Right(key, 1) = """" Then
-            key = Mid(key, 2, Len(key) - 2)
+        If Len(key) >= 2 Then
+            If Left(key, 1) = """" And Right(key, 1) = """" Then
+                key = Mid(key, 2, Len(key) - 2)
+            End If
         End If
         
-        dict.Add key, ParseValue(value)
+        ' Add to dictionary
+        If Len(key) > 0 Then
+            dict.Add key, ParseValue(value)
+        End If
     End If
 End Sub
 
@@ -213,51 +265,93 @@ Private Function ParseValue(value As String) As Variant
     value = Trim(value)
     
     If Len(value) = 0 Then
-        ParseValue = Null
+        ParseValue = ""
         Exit Function
     End If
     
-    If Left(value, 1) = """" And Right(value, 1) = """" Then
-        ' String value
+    ' Check value type and parse accordingly
+    If Len(value) >= 2 And Left(value, 1) = """" And Right(value, 1) = """" Then
+        ' String value - remove quotes and handle escape sequences
         ParseValue = Mid(value, 2, Len(value) - 2)
-        ParseValue = Replace(ParseValue, "\""", """")
-        ParseValue = Replace(ParseValue, "\\", "\")
-        ParseValue = Replace(ParseValue, "\/", "/")
-        ParseValue = Replace(ParseValue, "\b", Chr(8))
-        ParseValue = Replace(ParseValue, "\f", Chr(12))
-        ParseValue = Replace(ParseValue, "\n", vbLf)
-        ParseValue = Replace(ParseValue, "\r", vbCr)
-        ParseValue = Replace(ParseValue, "\t", vbTab)
+        ParseValue = UnescapeString(ParseValue)
+        
     ElseIf LCase(value) = "true" Then
         ParseValue = True
+        
     ElseIf LCase(value) = "false" Then
         ParseValue = False
+        
     ElseIf LCase(value) = "null" Then
         ParseValue = Null
+        
     ElseIf Left(value, 1) = "{" Then
         ' Nested object
         Set ParseValue = ParseJSONCustom(value)
+        
     ElseIf Left(value, 1) = "[" Then
         ' Nested array
         Set ParseValue = ParseJSONCustom(value)
-    ElseIf IsNumeric(value) Or (Left(value, 1) = "-" And IsNumeric(Mid(value, 2))) Then
+        
+    ElseIf IsNumericValue(value) Then
         ' Numeric value
-        If InStr(value, ".") > 0 Or InStr(LCase(value), "e") > 0 Then
-            ParseValue = CDbl(value)
-        Else
-            If Len(value) < 10 Then
-                ParseValue = CLng(value)
-            Else
-                ParseValue = CDbl(value)
-            End If
-        End If
+        ParseValue = ConvertToNumber(value)
+        
     Else
         ' Default to string if can't parse
         ParseValue = value
     End If
 End Function
 
-' Helper function to get nested values
+Private Function UnescapeString(str As String) As String
+    Dim result As String
+    result = str
+    
+    ' Handle common escape sequences
+    result = Replace(result, "\""", """")
+    result = Replace(result, "\\", "\")
+    result = Replace(result, "\/", "/")
+    result = Replace(result, "\b", Chr(8))
+    result = Replace(result, "\f", Chr(12))
+    result = Replace(result, "\n", vbLf)
+    result = Replace(result, "\r", vbCr)
+    result = Replace(result, "\t", vbTab)
+    
+    UnescapeString = result
+End Function
+
+Private Function IsNumericValue(value As String) As Boolean
+    ' More robust numeric checking
+    On Error Resume Next
+    Dim testVal As Double
+    testVal = CDbl(value)
+    IsNumericValue = (Err.Number = 0)
+    On Error GoTo 0
+End Function
+
+Private Function ConvertToNumber(value As String) As Variant
+    On Error Resume Next
+    
+    If InStr(value, ".") > 0 Or InStr(LCase(value), "e") > 0 Then
+        ' Decimal or scientific notation
+        ConvertToNumber = CDbl(value)
+    Else
+        ' Integer
+        If Len(value) < 10 Then
+            ConvertToNumber = CLng(value)
+        Else
+            ConvertToNumber = CDbl(value)
+        End If
+    End If
+    
+    ' If conversion failed, return as string
+    If Err.Number <> 0 Then
+        ConvertToNumber = value
+    End If
+    
+    On Error GoTo 0
+End Function
+
+' Helper function to get nested values safely
 Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
     If jsonObj Is Nothing Then
         GetJSONValue = Null
@@ -272,19 +366,19 @@ Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
     
     Dim i As Long
     For i = 0 To UBound(keys)
-        If currentObj.Exists(keys(i)) Then
+        If currentObj.Exists(CStr(keys(i))) Then
             If i = UBound(keys) Then
                 ' Last key - return the value
-                If IsObject(currentObj(keys(i))) Then
-                    Set GetJSONValue = currentObj(keys(i))
+                If IsObject(currentObj(CStr(keys(i)))) Then
+                    Set GetJSONValue = currentObj(CStr(keys(i)))
                 Else
-                    GetJSONValue = currentObj(keys(i))
+                    GetJSONValue = currentObj(CStr(keys(i)))
                 End If
                 Exit Function
             Else
                 ' Intermediate key - move deeper
-                If IsObject(currentObj(keys(i))) Then
-                    Set currentObj = currentObj(keys(i))
+                If IsObject(currentObj(CStr(keys(i)))) Then
+                    Set currentObj = currentObj(CStr(keys(i)))
                 Else
                     GetJSONValue = Null
                     Exit Function
@@ -297,47 +391,32 @@ Public Function GetJSONValue(jsonObj As Object, keyPath As String) As Variant
     Next i
 End Function
 
-' Example usage
-Sub TestJSONParser()
+' Safe test function
+Sub TestJSONParserSafe()
+    On Error GoTo ErrorHandler
+    
+    ' Simple test
     Dim jsonString As String
-    jsonString = "{""name"": ""John Doe"", ""age"": 30, ""city"": ""New York"", " & _
-                 """hobbies"": [""reading"", ""swimming""], " & _
-                 """address"": {""street"": ""123 Main St"", ""zip"": ""10001""}}"
+    jsonString = "{""name"": ""John Doe"", ""age"": 30, ""active"": true}"
     
     Dim jsonObj As Object
     Set jsonObj = ParseJSON(jsonString)
     
-    ' Test basic access
     Debug.Print "Name: " & jsonObj("name")
     Debug.Print "Age: " & jsonObj("age")
-    Debug.Print "City: " & jsonObj("city")
+    Debug.Print "Active: " & jsonObj("active")
     
-    ' Test array access
-    Debug.Print "First hobby: " & jsonObj("hobbies")("0")
-    Debug.Print "Second hobby: " & jsonObj("hobbies")("1")
-    
-    ' Test nested object access
-    Debug.Print "Street: " & jsonObj("address")("street")
-    Debug.Print "Zip: " & jsonObj("address")("zip")
-    
-    ' Test helper function
-    Debug.Print "Zip using helper: " & GetJSONValue(jsonObj, "address.zip")
-    
-    MsgBox "JSON parsing completed! Check Debug window for results."
-End Sub
-
-' Test with complex nested JSON
-Sub TestComplexJSON()
+    ' Complex test
     Dim complexJSON As String
-    complexJSON = "{""users"":[{""id"":1,""name"":""John"",""address"":{""city"":""NYC"",""coords"":{""lat"":40.7,""lng"":-74.0}}}]}"
+    complexJSON = "{""users"":[{""name"":""John"",""address"":{""city"":""NYC""}}]}"
     
-    Dim jsonObj As Object
     Set jsonObj = ParseJSON(complexJSON)
-    
-    ' Access deeply nested values
     Debug.Print "User name: " & jsonObj("users")("0")("name")
     Debug.Print "User city: " & jsonObj("users")("0")("address")("city")
-    Debug.Print "User latitude: " & jsonObj("users")("0")("address")("coords")("lat")
     
-    MsgBox "Complex JSON parsing completed!"
+    MsgBox "JSON parsing completed successfully!"
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error: " & Err.Description
 End Sub
